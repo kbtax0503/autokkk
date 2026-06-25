@@ -44,6 +44,7 @@ class KakaoListenerService : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         bridge = ServerBridge(this)
+        startPolling()  // 리스너 연결과 무관하게 항상 폴링(끊김 방지)
     }
 
     override fun onListenerConnected() {
@@ -56,8 +57,7 @@ class KakaoListenerService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         connected = false
-        stopPolling()
-        // 일부 기기에서 리스너가 끊기면 재바인드 요청(자동 복구).
+        // 폴링은 멈추지 않는다(리바인드 중에도 발송 폴 유지).
         // requestRebind는 정적 메서드 → 클래스명으로 호출.
         try {
             NotificationListenerService.requestRebind(
@@ -77,9 +77,11 @@ class KakaoListenerService : NotificationListenerService() {
         if (polling) return
         polling = true
         pollThread = Thread {
+            bridge.debug("poller started")
             while (polling) {
-                try { pollOnce() } catch (_: Exception) {}
-                try { Thread.sleep(6000) } catch (_: InterruptedException) { break }
+                try { pollOnce() } catch (e: Exception) { bridge.debug("poll error: ${e.message}") }
+                // interrupt 돼도 스레드를 죽이지 않는다(while(polling) 재확인으로만 종료).
+                try { Thread.sleep(6000) } catch (_: InterruptedException) {}
             }
         }.apply { isDaemon = true; start() }
     }
@@ -92,6 +94,8 @@ class KakaoListenerService : NotificationListenerService() {
 
     private fun pollOnce() {
         val arr = bridge.fetchPending() ?: return
+        if (arr.length() == 0) return
+        bridge.debug("poll: ${arr.length()} pending, cachedRooms=${ReplyStore.rooms()}")
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
             val id = item.optInt("id", -1)
@@ -99,7 +103,9 @@ class KakaoListenerService : NotificationListenerService() {
             val roomKey = item.optString("room_key")
             val text = item.optString("text")
             val action = ReplyStore.get(roomKey)
+            bridge.debug("poll item id=$id roomKey=$roomKey action=${if (action != null) "cached" else "null"}")
             val ok = action != null && sendReply(action, text)
+            bridge.debug("poll item id=$id sendReply=$ok")
             bridge.reportSent(id, if (ok) "sent" else "no_session")
             lastEvent = if (ok) "답장 발송: [$roomKey] ${text.take(20)}"
                         else "발송 실패(세션 없음): $roomKey"
