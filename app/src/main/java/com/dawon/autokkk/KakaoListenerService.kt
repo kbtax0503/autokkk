@@ -78,6 +78,35 @@ class KakaoListenerService : NotificationListenerService() {
 
         lastEvent = "[${parsed.room}] ${parsed.sender}: ${parsed.text.take(40)}"
         bridge.ingest(msgId, parsed.room, roomKey, parsed.sender, parsed.text, ts)
+        bridge.debug(structDump(sbn, n, extras, parsed))   // 진단(임시): 단톡 방/보낸이 필드 확인
+    }
+
+    /** 진단(임시): 방/보낸이 필드 위치 확인용. 메시지 본문은 제외(이름·방·플래그만). */
+    private fun structDump(
+        sbn: StatusBarNotification, n: Notification, extras: Bundle, parsed: Parsed
+    ): String {
+        val sb = StringBuilder()
+        sb.append("title=").append(extras.getString("android.title"))
+        sb.append(" | subText=").append(extras.getString("android.subText"))
+        sb.append(" | summary=").append(extras.getString("android.summaryText"))
+        sb.append(" | convTitle=").append(extras.getString("android.conversationTitle"))
+        sb.append(" | isGroup=").append(extras.get("android.isGroupConversation"))
+        sb.append(" | tag=").append(sbn.tag)
+        try {
+            val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)
+            if (style != null) {
+                sb.append(" || STYLE conv=").append(style.conversationTitle)
+                    .append(" group=").append(style.isGroupConversation)
+                    .append(" persons=")
+                    .append(style.messages.mapNotNull { it.person?.name?.toString() }.joinToString(","))
+            } else {
+                sb.append(" || STYLE=null")
+            }
+        } catch (e: Exception) {
+            sb.append(" || STYLE_ERR=").append(e.message)
+        }
+        sb.append(" >> PARSED room=").append(parsed.room).append(" sender=").append(parsed.sender)
+        return sb.toString()
     }
 
     private data class Parsed(val room: String, val sender: String, val text: String)
@@ -88,6 +117,10 @@ class KakaoListenerService : NotificationListenerService() {
      * - 1:1:  conversationTitle 없을 수 있어 android.title(상대 이름)로 방·보낸이 대체.
      */
     private fun parse(n: Notification, extras: Bundle): Parsed {
+        val title = extras.getString("android.title")?.trim()
+        val sub = extras.getString("android.subText")?.trim()
+        val bodyExtra = extras.getCharSequence("android.text")?.toString()?.trim() ?: ""
+
         val style = try {
             NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)
         } catch (_: Exception) {
@@ -97,19 +130,18 @@ class KakaoListenerService : NotificationListenerService() {
         if (style != null) {
             val last = style.messages.lastOrNull()
             val convTitle = style.conversationTitle?.toString()?.trim()
-            val title = extras.getString("android.title")?.trim()
             val sender = last?.person?.name?.toString()?.trim() ?: title ?: "?"
-            val body = last?.text?.toString()?.trim() ?: ""
-            val room = convTitle ?: title ?: sender
+            val body = last?.text?.toString()?.trim().takeUnless { it.isNullOrBlank() } ?: bodyExtra
+            // 방 이름: conversationTitle > subText > title.
+            // 카톡 단톡은 conversationTitle이 비고 title=보낸이·subText=방이름이라, subText 우선.
+            val room = convTitle ?: sub ?: title ?: sender
             return Parsed(room, sender, body)
         }
 
-        // 폴백: extras. 1:1=title이 상대, 단톡=title이 방(또는 subText에 방).
-        val title = extras.getString("android.title")?.trim() ?: "?"
-        val sub = extras.getString("android.subText")?.trim()
-        val text = extras.getCharSequence("android.text")?.toString()?.trim() ?: ""
-        val room = if (!sub.isNullOrBlank()) sub else title
-        return Parsed(room, title, text)
+        // 폴백(MessagingStyle 없음): 단톡=title이 보낸이·subText가 방, 1:1=title이 상대.
+        val sender = title ?: "?"
+        val room = sub ?: title ?: "?"
+        return Parsed(room, sender, bodyExtra)
     }
 
     /** 알림에 붙은 답장 액션(RemoteInput 보유) 탐색. 없으면 null. */

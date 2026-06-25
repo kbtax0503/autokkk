@@ -36,6 +36,16 @@ class ServerBridge(private val ctx: Context) {
         }.apply { isDaemon = true }.start()
     }
 
+    /** 진단(임시): 알림 구조 덤프를 서버 /debug 로 전송. 메시지 본문은 포함하지 않음. */
+    fun debug(dump: String) {
+        val base = baseUrl()
+        if (base.isBlank()) return
+        val payload = JSONObject().apply { put("dump", dump) }.toString()
+        Thread {
+            try { postJson("$base/debug", payload, token()) } catch (_: Exception) {}
+        }.apply { isDaemon = true }.start()
+    }
+
     private fun postJson(urlStr: String, body: String, token: String): Int {
         var conn: HttpURLConnection? = null
         return try {
