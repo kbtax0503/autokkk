@@ -7,6 +7,17 @@ android {
     namespace = "com.dawon.autokkk"
     compileSdk = 34
 
+    // 고정 debug 서명키(repo 커밋) — CI 빌드마다 키가 바뀌어 덮어설치가 막히는 문제 해결.
+    // 표준 안드 debug 자격증명(비공개 아님). 이후 모든 빌드는 같은 서명 → 업데이트 설치 가능.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.dawon.autokkk"
         minSdk = 26
