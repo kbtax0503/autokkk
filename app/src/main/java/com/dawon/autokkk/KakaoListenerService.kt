@@ -21,6 +21,14 @@ class KakaoListenerService : NotificationListenerService() {
     companion object {
         const val KAKAO_PKG = "com.kakao.talk"
 
+        /** 문자(SMS) 앱 패키지 — 은행 입금문자 수신용. */
+        val MESSAGING_PKGS = setOf(
+            "com.samsung.android.messaging",
+            "com.google.android.apps.messaging",
+            "com.android.messaging",
+            "com.android.mms",
+        )
+
         /** MainActivity 표시용 최근 상태(프로세스 메모리). */
         @Volatile var lastEvent: String = "(수신 없음)"
         @Volatile var connected: Boolean = false
@@ -52,11 +60,17 @@ class KakaoListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        if (sbn.packageName != KAKAO_PKG) return
-        try {
-            handle(sbn)
-        } catch (e: Exception) {
-            lastEvent = "파싱 오류: ${e.message}"
+        val pkg = sbn.packageName
+        when {
+            pkg == KAKAO_PKG -> try {
+                handle(sbn)
+            } catch (e: Exception) {
+                lastEvent = "파싱 오류: ${e.message}"
+            }
+            pkg in MESSAGING_PKGS -> try {
+                handleBankSms(sbn)
+            } catch (_: Exception) {
+            }
         }
     }
 
@@ -78,35 +92,25 @@ class KakaoListenerService : NotificationListenerService() {
 
         lastEvent = "[${parsed.room}] ${parsed.sender}: ${parsed.text.take(40)}"
         bridge.ingest(msgId, parsed.room, roomKey, parsed.sender, parsed.text, ts)
-        bridge.debug(structDump(sbn, n, extras, parsed))   // 진단(임시): 단톡 방/보낸이 필드 확인
     }
 
-    /** 진단(임시): 방/보낸이 필드 위치 확인용. 메시지 본문은 제외(이름·방·플래그만). */
-    private fun structDump(
-        sbn: StatusBarNotification, n: Notification, extras: Bundle, parsed: Parsed
-    ): String {
-        val sb = StringBuilder()
-        sb.append("title=").append(extras.getString("android.title"))
-        sb.append(" | subText=").append(extras.getString("android.subText"))
-        sb.append(" | summary=").append(extras.getString("android.summaryText"))
-        sb.append(" | convTitle=").append(extras.getString("android.conversationTitle"))
-        sb.append(" | isGroup=").append(extras.get("android.isGroupConversation"))
-        sb.append(" | tag=").append(sbn.tag)
-        try {
-            val style = NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(n)
-            if (style != null) {
-                sb.append(" || STYLE conv=").append(style.conversationTitle)
-                    .append(" group=").append(style.isGroupConversation)
-                    .append(" persons=")
-                    .append(style.messages.mapNotNull { it.person?.name?.toString() }.joinToString(","))
-            } else {
-                sb.append(" || STYLE=null")
-            }
-        } catch (e: Exception) {
-            sb.append(" || STYLE_ERR=").append(e.message)
-        }
-        sb.append(" >> PARSED room=").append(parsed.room).append(" sender=").append(parsed.sender)
-        return sb.toString()
+    /** 은행 입금/출금 SMS 알림 → 본문 추출 → 서버 /deposit-sms 중계. 은행 문자만 통과(광고 제외). */
+    private fun handleBankSms(sbn: StatusBarNotification) {
+        val extras = sbn.notification?.extras ?: return
+        val sender = extras.getString("android.title")?.trim() ?: ""
+        // SMS 전문은 bigText에 들어옴(text는 미리보기라 잘릴 수 있음).
+        val body = (extras.getCharSequence("android.bigText")
+            ?: extras.getCharSequence("android.text"))?.toString()?.trim() ?: ""
+        if (body.isBlank()) return
+        if (!isBankSms(sender, body)) return
+        lastEvent = "입금문자: $sender"
+        bridge.depositSms(sender, body)
+    }
+
+    /** 은행 입금문자 판별: 발신자=은행(기업은행/IBK) 또는 본문에 입/출금+잔액. */
+    private fun isBankSms(sender: String, body: String): Boolean {
+        if (sender.contains("기업은행") || sender.contains("IBK")) return true
+        return (body.contains("입금") || body.contains("출금")) && body.contains("잔액")
     }
 
     private data class Parsed(val room: String, val sender: String, val text: String)

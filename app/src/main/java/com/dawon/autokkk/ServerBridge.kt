@@ -36,13 +36,16 @@ class ServerBridge(private val ctx: Context) {
         }.apply { isDaemon = true }.start()
     }
 
-    /** 진단(임시): 알림 구조 덤프를 서버 /debug 로 전송. 메시지 본문은 포함하지 않음. */
-    fun debug(dump: String) {
+    /** 은행 입금SMS를 서버 /deposit-sms 로 전송 → 서버가 tax 입금 webhook으로 중계. */
+    fun depositSms(sender: String, text: String) {
         val base = baseUrl()
         if (base.isBlank()) return
-        val payload = JSONObject().apply { put("dump", dump) }.toString()
+        val payload = JSONObject().apply {
+            put("sender", sender)
+            put("text", text)
+        }.toString()
         Thread {
-            try { postJson("$base/debug", payload, token()) } catch (_: Exception) {}
+            try { postJson("$base/deposit-sms", payload, token()) } catch (_: Exception) {}
         }.apply { isDaemon = true }.start()
     }
 
