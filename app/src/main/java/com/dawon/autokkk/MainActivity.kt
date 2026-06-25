@@ -51,7 +51,7 @@ class MainActivity : AppCompatActivity() {
         phoneToken = findViewById(R.id.phoneToken)
         status = findViewById(R.id.status)
 
-        serverUrl.setText(prefs().getString("server_url", "http://192.168.45.77:8195"))
+        serverUrl.setText(prefs().getString("server_url", "http://192.168.45.101:8195"))
         phoneToken.setText(prefs().getString("phone_token", ""))
 
         findViewById<Button>(R.id.btnSave).setOnClickListener {
