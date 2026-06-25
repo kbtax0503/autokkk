@@ -42,9 +42,12 @@ class KakaoListenerService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         connected = false
-        // 일부 기기에서 리스너가 끊기면 재바인드 요청(자동 복구)
+        // 일부 기기에서 리스너가 끊기면 재바인드 요청(자동 복구).
+        // requestRebind는 정적 메서드 → 클래스명으로 호출.
         try {
-            requestRebind(ComponentName(this, KakaoListenerService::class.java))
+            NotificationListenerService.requestRebind(
+                ComponentName(this, KakaoListenerService::class.java)
+            )
         } catch (_: Exception) {}
     }
 
