@@ -1,7 +1,9 @@
 package com.dawon.autokkk
 
 import android.app.Notification
+import android.app.RemoteInput
 import android.content.ComponentName
+import android.content.Intent
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
@@ -36,6 +38,9 @@ class KakaoListenerService : NotificationListenerService() {
 
     private lateinit var bridge: ServerBridge
 
+    @Volatile private var polling = false
+    private var pollThread: Thread? = null
+
     override fun onCreate() {
         super.onCreate()
         bridge = ServerBridge(this)
@@ -45,11 +50,13 @@ class KakaoListenerService : NotificationListenerService() {
         super.onListenerConnected()
         connected = true
         lastEvent = "알림 접근 연결됨 — 대기 중"
+        startPolling()
     }
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         connected = false
+        stopPolling()
         // 일부 기기에서 리스너가 끊기면 재바인드 요청(자동 복구).
         // requestRebind는 정적 메서드 → 클래스명으로 호출.
         try {
@@ -57,6 +64,61 @@ class KakaoListenerService : NotificationListenerService() {
                 ComponentName(this, KakaoListenerService::class.java)
             )
         } catch (_: Exception) {}
+    }
+
+    override fun onDestroy() {
+        stopPolling()
+        super.onDestroy()
+    }
+
+    // ── 발송 폴링: 서버 /pending 의 승인된 답장을 가져와 그 방에 RemoteInput으로 발사 ──
+
+    private fun startPolling() {
+        if (polling) return
+        polling = true
+        pollThread = Thread {
+            while (polling) {
+                try { pollOnce() } catch (_: Exception) {}
+                try { Thread.sleep(6000) } catch (_: InterruptedException) { break }
+            }
+        }.apply { isDaemon = true; start() }
+    }
+
+    private fun stopPolling() {
+        polling = false
+        pollThread?.interrupt()
+        pollThread = null
+    }
+
+    private fun pollOnce() {
+        val arr = bridge.fetchPending() ?: return
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val id = item.optInt("id", -1)
+            if (id < 0) continue
+            val roomKey = item.optString("room_key")
+            val text = item.optString("text")
+            val action = ReplyStore.get(roomKey)
+            val ok = action != null && sendReply(action, text)
+            bridge.reportSent(id, if (ok) "sent" else "no_session")
+            lastEvent = if (ok) "답장 발송: [$roomKey] ${text.take(20)}"
+                        else "발송 실패(세션 없음): $roomKey"
+        }
+    }
+
+    /** 저장해둔 답장 액션의 RemoteInput에 text를 채워 PendingIntent 발사 = 그 방에 카톡 답장 발송. */
+    private fun sendReply(action: Notification.Action, text: String): Boolean {
+        val inputs = action.remoteInputs ?: return false
+        val fillIn = Intent()
+        val results = Bundle()
+        for (ri in inputs) results.putCharSequence(ri.resultKey, text)
+        RemoteInput.addResultsToIntent(inputs, fillIn, results)
+        return try {
+            action.actionIntent.send(this, 0, fillIn)
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {

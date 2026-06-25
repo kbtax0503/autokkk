@@ -1,6 +1,7 @@
 package com.dawon.autokkk
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -47,6 +48,50 @@ class ServerBridge(private val ctx: Context) {
         Thread {
             try { postJson("$base/deposit-sms", payload, token()) } catch (_: Exception) {}
         }.apply { isDaemon = true }.start()
+    }
+
+    /** 서버 발송 대기 목록(GET /pending). 각 항목 {id, room_key, text}. 실패/없음=null. */
+    fun fetchPending(): JSONArray? {
+        val base = baseUrl()
+        if (base.isBlank()) return null
+        return try {
+            val resp = httpGet("$base/pending", token()) ?: return null
+            JSONObject(resp).optJSONArray("pending")
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** 발송 결과 콜백(POST /sent). status=sent/no_session/failed 등. */
+    fun reportSent(id: Int, status: String) {
+        val base = baseUrl()
+        if (base.isBlank()) return
+        val payload = JSONObject().apply {
+            put("id", id)
+            put("status", status)
+        }.toString()
+        Thread {
+            try { postJson("$base/sent", payload, token()) } catch (_: Exception) {}
+        }.apply { isDaemon = true }.start()
+    }
+
+    private fun httpGet(urlStr: String, token: String): String? {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 10000
+                readTimeout = 15000
+                if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer $token")
+            }
+            if (conn.responseCode in 200..299)
+                conn.inputStream.bufferedReader().use { it.readText() }
+            else null
+        } catch (e: Exception) {
+            null
+        } finally {
+            conn?.disconnect()
+        }
     }
 
     private fun postJson(urlStr: String, body: String, token: String): Int {
