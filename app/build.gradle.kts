@@ -22,8 +22,8 @@ android {
         applicationId = "com.dawon.autokkk"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.5"
+        versionCode = 6
+        versionName = "0.6"
     }
 
     buildTypes {
@@ -43,4 +43,6 @@ android {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // 다운로드 폴더 읽기 프로브(SAF 트리 재귀 나열). 매니페스트 권한 추가 없음.
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }

@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">카톡 브릿지</string>
+    <string name="a11y_label">카톡 화면 읽기(자료획득 실험)</string>
+    <string name="a11y_desc">카톡 채팅화면의 첨부(사진·파일) 노드를 확인하기 위한 진단용. 카카오톡 화면에서만 동작합니다.</string>
 </resources>

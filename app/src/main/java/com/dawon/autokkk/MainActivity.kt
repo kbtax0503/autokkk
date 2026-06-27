@@ -14,9 +14,12 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import android.net.Uri
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.documentfile.provider.DocumentFile
 
 /**
  * 설정 화면: 서버 주소·폰 토큰 입력/저장, 알림 접근 권한 열기, 상태 표시, 연결 테스트.
@@ -29,6 +32,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private val handler = Handler(Looper.getMainLooper())
 
+    /** SAF 폴더 선택 결과 → 그 폴더만 읽는 권한 영구저장 + 즉시 파일 확인. */
+    private val pickTree =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) {}
+                prefs().edit().putString("tree_uri", uri.toString()).apply()
+                Toast.makeText(this, "폴더 지정됨 — 파일 확인 보냄", Toast.LENGTH_SHORT).show()
+                probeFolder()
+            }
+        }
+
     private val ticker = object : Runnable {
         override fun run() {
             val granted = isNotificationAccessGranted()
@@ -38,7 +56,13 @@ class MainActivity : AppCompatActivity() {
                 !conn -> "⏳ 알림 접근 허용됨 · 서비스 연결 대기(카톡 알림 한 번 오면 연결)"
                 else -> "✅ 연결됨 · 카톡 수신 대기"
             }
-            status.text = "$st\n\n최근 수신: ${KakaoListenerService.lastEvent}"
+            val a11y = if (isA11yGranted()) "✅ 접근성 켜짐" else "❌ 접근성 꺼짐(아래 버튼에서 켜세요)"
+            val dumpInfo = if (KakaoAccessibilityService.lastDumpAt > 0)
+                "최근 트리덤프 ${KakaoAccessibilityService.lastDumpNodes}노드"
+            else "트리덤프 없음 — 카톡방 열어보세요"
+            val folder = if ((prefs().getString("tree_uri", "") ?: "").isNotBlank())
+                "📁 폴더 지정됨" else "📁 폴더 미지정"
+            status.text = "$st\n$a11y · $dumpInfo\n$folder\n\n최근 수신: ${KakaoListenerService.lastEvent}"
             handler.postDelayed(this, 1000)
         }
     }
@@ -94,6 +118,24 @@ class MainActivity : AppCompatActivity() {
             )
             Toast.makeText(this, "테스트 전송함 — 서버 로그/DB 확인", Toast.LENGTH_SHORT).show()
         }
+
+        findViewById<Button>(R.id.btnA11y).setOnClickListener {
+            try {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            } catch (_: Exception) {
+                Toast.makeText(this, "접근성 설정 화면을 열 수 없습니다", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        findViewById<Button>(R.id.btnPickFolder).setOnClickListener {
+            try {
+                pickTree.launch(null)
+            } catch (_: Exception) {
+                Toast.makeText(this, "폴더 선택 창을 열 수 없습니다", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        findViewById<Button>(R.id.btnProbeFiles).setOnClickListener { probeFolder() }
     }
 
     override fun onResume() {
@@ -113,5 +155,56 @@ class MainActivity : AppCompatActivity() {
     private fun isNotificationAccessGranted(): Boolean {
         val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
         return !flat.isNullOrEmpty() && flat.contains(packageName)
+    }
+
+    /** 이 앱의 접근성 서비스가 켜져 있는지. */
+    private fun isA11yGranted(): Boolean {
+        val flat = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        )
+        return !flat.isNullOrEmpty() && flat.contains(packageName)
+    }
+
+    /**
+     * 지정된 다운로드 폴더의 최근 파일 목록을 서버 /debug 로 보고([FILES]).
+     * 카톡 "저장"이 그 폴더에 떨어져 우리 앱이 읽히는지 검증용(스파이크).
+     */
+    private fun probeFolder() {
+        val uriStr = prefs().getString("tree_uri", "") ?: ""
+        if (uriStr.isBlank()) {
+            Toast.makeText(this, "먼저 '다운로드 폴더 지정'을 누르세요", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val tree = DocumentFile.fromTreeUri(this, Uri.parse(uriStr))
+        val bridge = ServerBridge(this)
+        if (tree == null) {
+            bridge.debug("[FILES] tree null")
+            return
+        }
+        Thread {
+            try {
+                val sb = StringBuilder("[FILES] tree=${tree.name}\n")
+                var count = 0
+                fun walk(dir: DocumentFile, depth: Int) {
+                    if (depth > 3 || count >= 60) return
+                    for (f in dir.listFiles()) {
+                        if (count >= 60) break
+                        val indent = "  ".repeat(depth)
+                        if (f.isDirectory) {
+                            sb.append("$indent[D] ${f.name}\n")
+                            walk(f, depth + 1)
+                        } else {
+                            count++
+                            sb.append("$indent${f.name}  ${f.length()}B  mtime=${f.lastModified()}\n")
+                        }
+                    }
+                }
+                walk(tree, 0)
+                sb.append("(files=$count)")
+                bridge.debug(sb.toString().take(16000))
+            } catch (e: Exception) {
+                bridge.debug("[FILES] probe error: ${e.message}")
+            }
+        }.apply { isDaemon = true }.start()
     }
 }

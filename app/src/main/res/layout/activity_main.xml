@@ -71,6 +71,27 @@
             android:layout_marginTop="8dp"
             android:text="서버 연결 테스트 전송" />
 
+        <Button
+            android:id="@+id/btnA11y"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="카톡 화면 읽기 권한 열기(접근성)" />
+
+        <Button
+            android:id="@+id/btnPickFolder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="다운로드 폴더 지정(파일 읽기 실험)" />
+
+        <Button
+            android:id="@+id/btnProbeFiles"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="폴더 최근파일 확인 보내기" />
+
         <TextView
             android:id="@+id/status"
             android:layout_width="match_parent"

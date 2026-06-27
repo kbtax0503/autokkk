@@ -35,5 +35,22 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!--
+          카톡 화면 접근성 트리 덤프(스파이크). com.kakao.talk 창에서만 반응(accessibility_config packageNames).
+          system이 BIND_ACCESSIBILITY_SERVICE 권한으로 바인드 → exported=true(이 권한은 시스템만 보유).
+        -->
+        <service
+            android:name=".KakaoAccessibilityService"
+            android:exported="true"
+            android:label="@string/a11y_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_config" />
+        </service>
     </application>
 </manifest>
