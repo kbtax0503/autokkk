@@ -37,6 +37,21 @@ class ServerBridge(private val ctx: Context) {
         }.apply { isDaemon = true }.start()
     }
 
+    /** 거래처 자료획득(B): 공유로 받은 첨부를 base64로 서버 /asset 에 비동기 업로드. */
+    fun uploadAsset(filename: String, bytes: ByteArray) {
+        val base = baseUrl()
+        if (base.isBlank()) return
+        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        val payload = JSONObject().apply {
+            put("filename", filename)
+            put("data_b64", b64)
+            put("note", "kakao share")
+        }.toString()
+        Thread {
+            try { postJson("$base/asset", payload, token()) } catch (_: Exception) {}
+        }.apply { isDaemon = true }.start()
+    }
+
     /** 진단(임시): 한 줄 로그를 서버 /debug 로 전송. 발송 폴링 흐름 확인용. */
     fun debug(dump: String) {
         val base = baseUrl()

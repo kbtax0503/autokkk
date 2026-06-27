@@ -37,6 +37,28 @@
         </service>
 
         <!--
+          거래처 자료획득(B): 안드 "공유" 대상. 카톡 첨부를 "공유 → 카톡 브릿지"로 받아 서버 /asset 업로드.
+          NoDisplay 테마로 화면 없이 받자마자 처리. */* = 사진·파일 모두 수신.
+        -->
+        <activity
+            android:name=".ShareReceiverActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+
+        <!--
           카톡 화면 접근성 트리 덤프(스파이크). com.kakao.talk 창에서만 반응(accessibility_config packageNames).
           system이 BIND_ACCESSIBILITY_SERVICE 권한으로 바인드 → exported=true(이 권한은 시스템만 보유).
         -->
