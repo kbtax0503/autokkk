@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -33,3 +36,14 @@ jobs:
           name: autokkk-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+      # 공개 릴리스로 APK 발행 → 토큰 없이 직접 다운로드(폰/텔레그램 전달 쉬움). 내장 GITHUB_TOKEN 사용.
+      - name: Publish release with APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "build-${{ github.run_number }}" \
+            app/build/outputs/apk/debug/app-debug.apk \
+            -R "${{ github.repository }}" \
+            -t "autokkk build ${{ github.run_number }}" \
+            -n "자동 빌드 debug APK. app-debug.apk 받아 설치(같은 서명이라 덮어설치 가능)."
