@@ -79,11 +79,25 @@
             android:text="카톡 화면 읽기 권한 열기(접근성)" />
 
         <Button
-            android:id="@+id/btnPickFolder"
+            android:id="@+id/btnPickPhoto"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:text="다운로드 폴더 지정(파일 읽기 실험)" />
+            android:text="사진 저장폴더 지정(자동수집)" />
+
+        <Button
+            android:id="@+id/btnPickFolder"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="파일 다운로드폴더 지정(자동수집)" />
+
+        <Button
+            android:id="@+id/btnScanNow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="지금 자료창고로 스캔(수동검증)" />
 
         <Button
             android:id="@+id/btnProbeFiles"

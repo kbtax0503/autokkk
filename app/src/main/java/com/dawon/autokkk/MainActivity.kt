@@ -32,7 +32,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private val handler = Handler(Looper.getMainLooper())
 
-    /** SAF 폴더 선택 결과 → 그 폴더만 읽는 권한 영구저장 + 즉시 파일 확인. */
+    /** SAF 다운로드폴더 선택 → 영구 읽기권한 저장(download_tree_uri + 프로브용 tree_uri) + 파일 확인. */
     private val pickTree =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri != null) {
@@ -41,9 +41,26 @@ class MainActivity : AppCompatActivity() {
                         uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
                     )
                 } catch (_: Exception) {}
-                prefs().edit().putString("tree_uri", uri.toString()).apply()
-                Toast.makeText(this, "폴더 지정됨 — 파일 확인 보냄", Toast.LENGTH_SHORT).show()
+                prefs().edit()
+                    .putString("download_tree_uri", uri.toString())
+                    .putString("tree_uri", uri.toString())   // 스파이크 probeFolder 호환
+                    .apply()
+                Toast.makeText(this, "다운로드 폴더 지정됨 — 파일 확인 보냄", Toast.LENGTH_SHORT).show()
                 probeFolder()
+            }
+        }
+
+    /** SAF 사진 저장폴더 선택 → 영구 읽기권한 저장(photo_tree_uri). 자동수집(B2)이 스캔. */
+    private val pickPhotoTree =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) {}
+                prefs().edit().putString("photo_tree_uri", uri.toString()).apply()
+                Toast.makeText(this, "사진 저장폴더 지정됨", Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -60,8 +77,9 @@ class MainActivity : AppCompatActivity() {
             val dumpInfo = if (KakaoAccessibilityService.lastDumpAt > 0)
                 "최근 트리덤프 ${KakaoAccessibilityService.lastDumpNodes}노드"
             else "트리덤프 없음 — 카톡방 열어보세요"
-            val folder = if ((prefs().getString("tree_uri", "") ?: "").isNotBlank())
-                "📁 폴더 지정됨" else "📁 폴더 미지정"
+            val photoOk = (prefs().getString("photo_tree_uri", "") ?: "").isNotBlank()
+            val dlOk = (prefs().getString("download_tree_uri", "") ?: "").isNotBlank()
+            val folder = "📁 사진폴더 ${if (photoOk) "✅" else "❌"} · 다운로드폴더 ${if (dlOk) "✅" else "❌"}"
             status.text = "$st\n$a11y · $dumpInfo\n$folder\n\n최근 수신: ${KakaoListenerService.lastEvent}"
             handler.postDelayed(this, 1000)
         }
@@ -127,12 +145,35 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        findViewById<Button>(R.id.btnPickPhoto).setOnClickListener {
+            try {
+                pickPhotoTree.launch(null)
+            } catch (_: Exception) {
+                Toast.makeText(this, "폴더 선택 창을 열 수 없습니다", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         findViewById<Button>(R.id.btnPickFolder).setOnClickListener {
             try {
                 pickTree.launch(null)
             } catch (_: Exception) {
                 Toast.makeText(this, "폴더 선택 창을 열 수 없습니다", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        findViewById<Button>(R.id.btnScanNow).setOnClickListener {
+            Toast.makeText(this, "스캔 시작 — 잠시만요", Toast.LENGTH_SHORT).show()
+            Thread {
+                val n = try { AssetUploader(this).scanAndUpload("수동") } catch (_: Exception) { -1 }
+                runOnUiThread {
+                    val msg = when {
+                        n < 0 -> "스캔 오류"
+                        n == 0 -> "새 파일 없음(이미 올렸거나 폴더 미지정)"
+                        else -> "자료창고로 보냄: ${n}개"
+                    }
+                    Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                }
+            }.apply { isDaemon = true }.start()
         }
 
         findViewById<Button>(R.id.btnProbeFiles).setOnClickListener { probeFolder() }

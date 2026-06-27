@@ -37,19 +37,57 @@ class ServerBridge(private val ctx: Context) {
         }.apply { isDaemon = true }.start()
     }
 
-    /** 거래처 자료획득(B): 공유로 받은 첨부를 base64로 서버 /asset 에 비동기 업로드. */
-    fun uploadAsset(filename: String, bytes: ByteArray) {
+    /** 거래처 자료획득(B): 공유로 받은 첨부를 base64로 서버 /asset 에 비동기 업로드(B1 수동공유). */
+    fun uploadAsset(filename: String, bytes: ByteArray, room: String = "") {
         val base = baseUrl()
         if (base.isBlank()) return
-        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-        val payload = JSONObject().apply {
-            put("filename", filename)
-            put("data_b64", b64)
-            put("note", "kakao share")
-        }.toString()
+        val payload = assetPayload(filename, bytes, room, "kakao share")
         Thread {
             try { postJson("$base/asset", payload, token()) } catch (_: Exception) {}
         }.apply { isDaemon = true }.start()
+    }
+
+    /**
+     * 무인 자동수집(B2): 동기 업로드. 성공(2xx)이면 true → 호출자가 dedup seen 기록.
+     * 호출자(AssetUploader)는 이미 워커스레드라 여기서 스레드 안 띄움.
+     */
+    fun uploadAssetSync(filename: String, bytes: ByteArray, room: String): Boolean {
+        val base = baseUrl()
+        if (base.isBlank()) return false
+        return try {
+            postJson("$base/asset", assetPayload(filename, bytes, room, "auto-capture"), token()) in 200..299
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun assetPayload(filename: String, bytes: ByteArray, room: String, note: String): String {
+        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        return JSONObject().apply {
+            put("filename", filename)
+            put("data_b64", b64)
+            put("note", note)
+            if (room.isNotBlank()) put("room", room)
+        }.toString()
+    }
+
+    /**
+     * 무인 자동수집(B2): 서버 GET /capture-config → CaptureConfig(거래처방 allowlist + 킬스위치).
+     * 실패 시 null(앱은 마지막 캐시 유지). 호출자는 워커스레드.
+     */
+    fun fetchCaptureConfig(): CaptureConfig? {
+        val base = baseUrl()
+        if (base.isBlank()) return null
+        return try {
+            val resp = httpGet("$base/capture-config", token()) ?: return null
+            val o = JSONObject(resp)
+            val arr = o.optJSONArray("rooms")
+            val rooms = ArrayList<String>()
+            if (arr != null) for (i in 0 until arr.length()) arr.optString(i)?.let { rooms.add(it) }
+            CaptureConfig(o.optBoolean("enabled", false), rooms)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /** 진단(임시): 한 줄 로그를 서버 /debug 로 전송. 발송 폴링 흐름 확인용. */
