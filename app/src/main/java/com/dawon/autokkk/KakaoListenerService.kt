@@ -34,6 +34,22 @@ class KakaoListenerService : NotificationListenerService() {
         /** MainActivity 표시용 최근 상태(프로세스 메모리). */
         @Volatile var lastEvent: String = "(수신 없음)"
         @Volatile var connected: Boolean = false
+
+        /** 무인 자동수집(B2) 설정 캐시 — 서버 /capture-config 폴링으로 갱신(폴 루프). */
+        @Volatile var captureEnabled: Boolean = false
+        @Volatile var captureRooms: List<String> = emptyList()
+        @Volatile var lastCaptureRefresh: Long = 0L
+
+        /**
+         * 첨부(사진·파일) 알림 문구 휴리스틱. 실기기 로그([CAP] hint=)로 미세조정.
+         * allowlist 방에서만 보고, 워커가 "실제 저장가능 첨부"를 다시 확인하므로 다소 느슨해도 안전.
+         */
+        val ATTACH_HINTS = listOf(
+            "사진을 보냈", "이미지를 보냈", "동영상을 보냈", "사진을 받았", "[사진]", "[동영상]", "[파일]",
+            "파일:", "파일을 보냈", "음성메시지", "보이스톡",
+            ".pdf", ".xls", ".xlsx", ".hwp", ".hwpx", ".doc", ".docx", ".ppt", ".pptx",
+            ".zip", ".jpg", ".jpeg", ".png", ".gif", ".heic",
+        )
     }
 
     private lateinit var bridge: ServerBridge
@@ -80,6 +96,7 @@ class KakaoListenerService : NotificationListenerService() {
             bridge.debug("poller started")
             while (polling) {
                 try { pollOnce() } catch (e: Exception) { bridge.debug("poll error: ${e.message}") }
+                try { maybeRefreshCaptureConfig() } catch (_: Exception) {}
                 // interrupt 돼도 스레드를 죽이지 않는다(while(polling) 재확인으로만 종료).
                 try { Thread.sleep(6000) } catch (_: InterruptedException) {}
             }
@@ -160,6 +177,46 @@ class KakaoListenerService : NotificationListenerService() {
 
         lastEvent = "[${parsed.room}] ${parsed.sender}: ${parsed.text.take(40)}"
         bridge.ingest(msgId, parsed.room, roomKey, parsed.sender, parsed.text, ts)
+
+        // 무인 자동수집(B2): 거래처방 + 첨부 + enabled 이면 캡처 큐에 적재(워커가 그 방 열고 저장).
+        maybeEnqueueCapture(n, parsed)
+    }
+
+    /** 서버 /capture-config 를 60초마다 갱신(폴 루프에서 호출). 실패 시 직전 캐시 유지. */
+    private fun maybeRefreshCaptureConfig() {
+        val now = System.currentTimeMillis()
+        if (now - lastCaptureRefresh < 60_000 && lastCaptureRefresh != 0L) return
+        val cfg = bridge.fetchCaptureConfig() ?: return
+        captureEnabled = cfg.enabled
+        captureRooms = cfg.rooms
+        lastCaptureRefresh = now
+    }
+
+    /** 거래처방 + 첨부 + 서버 enabled 이면 CaptureQueue 적재. 게이트 미통과면 조용히 무시. */
+    private fun maybeEnqueueCapture(n: Notification, parsed: Parsed) {
+        if (!captureEnabled) return
+        if (!roomAllowed(parsed.room)) return
+        if (!isAttachment(parsed.text)) return
+        CaptureQueue.enqueue(
+            CaptureRequest(parsed.room, n.contentIntent, parsed.text, System.currentTimeMillis())
+        )
+        bridge.debug("[CAP] queued room=${parsed.room} hint=${parsed.text.take(40)} q=${CaptureQueue.size()}")
+    }
+
+    /** allowlist 매칭: 정규화(trim) 후 완전일치 또는 allowlist 항목이 방 제목에 포함(접미사 있는 방 대응). */
+    private fun roomAllowed(room: String): Boolean {
+        val r = room.trim()
+        if (r.isBlank()) return false
+        return captureRooms.any { a ->
+            val t = a.trim()
+            t.isNotBlank() && (r == t || r.contains(t))
+        }
+    }
+
+    /** 첨부 알림 문구 판별(ATTACH_HINTS 부분일치, 대소문자 무시). */
+    private fun isAttachment(text: String): Boolean {
+        val t = text.lowercase()
+        return ATTACH_HINTS.any { t.contains(it.lowercase()) }
     }
 
     /** 은행 입금/출금 SMS 알림 → 본문 추출 → 서버 /deposit-sms 중계. 은행 문자만 통과(광고 제외). */
