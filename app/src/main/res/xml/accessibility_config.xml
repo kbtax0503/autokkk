@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  점검(recon): packageNames 제한 제거 → 공유 시트(다른 패키지) 이벤트도 수신.
+  덤프는 코드(shouldDump)에서 카톡+공유시트만 하도록 필터. 무인 자동화 확정 후 다시 com.kakao.talk로 좁힌다.
+-->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowContentChanged|typeWindowStateChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="300"
-    android:packageNames="com.kakao.talk"
     android:description="@string/a11y_desc" />

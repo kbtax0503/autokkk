@@ -25,6 +25,15 @@ class KakaoAccessibilityService : AccessibilityService() {
         private const val MAX_NODES = 400
         private const val MAX_DUMP = 16000
 
+        /**
+         * 점검(recon)용: 카톡 외에 "공유 시트" 창도 덤프해 우리앱(카톡 브릿지) 노드를 찾는다.
+         * 패키지 부분일치(One UI 13: com.android.intentresolver / com.samsung.android.app.sharelive 등).
+         * 실제 공유 시트 패키지는 [A11Y] window pkg= 로그로 확정.
+         */
+        private val SHARE_PKGS = listOf(
+            "intentresolver", "resolver", "sharesheet", "sharelive", "chooser"
+        )
+
         /** MainActivity 상태표시용(프로세스 메모리). */
         @Volatile var lastDumpAt: Long = 0L
         @Volatile var lastDumpNodes: Int = 0
@@ -43,21 +52,30 @@ class KakaoAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val e = event ?: return
-        if (e.packageName != KAKAO_PKG) return
+        val pkg = e.packageName?.toString() ?: return
         when (e.eventType) {
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {}
             else -> return
         }
+
+        // 점검(recon): 창 전환 때마다 패키지 한 줄 로그 → 공유 시트가 어느 패키지인지 확정.
+        if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != packageName) {
+            try { bridge.debug("[A11Y] window pkg=$pkg cls=${e.className}") } catch (_: Exception) {}
+        }
+
+        if (!shouldDump(pkg)) return
+
         val now = System.currentTimeMillis()
         if (now - lastDump < THROTTLE_MS) return
 
         val root = rootInActiveWindow ?: return
-        if (root.packageName != KAKAO_PKG) return
+        val rootPkg = root.packageName?.toString() ?: ""
+        if (!shouldDump(rootPkg)) return
         lastDump = now
 
         try {
-            val dump = buildDump(root)
+            val dump = buildDump(root, rootPkg)
             lastDumpAt = now
             bridge.debug(dump)
         } catch (ex: Exception) {
@@ -65,7 +83,11 @@ class KakaoAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun buildDump(root: AccessibilityNodeInfo): String {
+    /** 카톡 + 공유 시트(시스템) 창만 덤프. 점검용으로 공유 시트를 포함한다. */
+    private fun shouldDump(pkg: String): Boolean =
+        pkg == KAKAO_PKG || SHARE_PKGS.any { pkg.contains(it, ignoreCase = true) }
+
+    private fun buildDump(root: AccessibilityNodeInfo, pkg: String): String {
         val lines = StringBuilder()
         val hints = StringBuilder()
         var count = 0
@@ -95,7 +117,7 @@ class KakaoAccessibilityService : AccessibilityService() {
         walk(root, 0)
         lastDumpNodes = count
 
-        val header = "[A11Y] kakao tree nodes=$count depth<=$MAX_DEPTH\n" +
+        val header = "[A11Y] tree pkg=$pkg nodes=$count depth<=$MAX_DEPTH\n" +
             "==HINTS(attachment-ish)==\n${if (hints.isEmpty()) "(none)\n" else hints}" +
             "==TREE==\n"
         return (header + lines).take(MAX_DUMP)
