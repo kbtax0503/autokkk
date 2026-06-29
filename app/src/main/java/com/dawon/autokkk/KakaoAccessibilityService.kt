@@ -41,14 +41,23 @@ class KakaoAccessibilityService : AccessibilityService() {
 
     private lateinit var bridge: ServerBridge
     private var lastDump = 0L
+    private var worker: CaptureWorker? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         bridge = ServerBridge(this)
         bridge.debug("[A11Y] service connected")
+        // B2 무인 자동수집 워커 — CaptureQueue 소비(앱 킬스위치 auto_capture_enabled로 게이트).
+        worker = CaptureWorker(this).also { it.start() }
     }
 
     override fun onInterrupt() {}
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        worker?.stop()
+        worker = null
+        return super.onUnbind(intent)
+    }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val e = event ?: return

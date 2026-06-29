@@ -80,7 +80,8 @@ class MainActivity : AppCompatActivity() {
             val photoOk = (prefs().getString("photo_tree_uri", "") ?: "").isNotBlank()
             val dlOk = (prefs().getString("download_tree_uri", "") ?: "").isNotBlank()
             val folder = "📁 사진폴더 ${if (photoOk) "✅" else "❌"} · 다운로드폴더 ${if (dlOk) "✅" else "❌"}"
-            status.text = "$st\n$a11y · $dumpInfo\n$folder\n\n최근 수신: ${KakaoListenerService.lastEvent}"
+            val auto = if (prefs().getBoolean("auto_capture_enabled", false)) "🟢 자동수집 ON" else "⚪ 자동수집 OFF"
+            status.text = "$st\n$a11y · $dumpInfo\n$folder · $auto\n\n최근 수신: ${KakaoListenerService.lastEvent}"
             handler.postDelayed(this, 1000)
         }
     }
@@ -177,6 +178,27 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btnProbeFiles).setOnClickListener { probeFolder() }
+
+        // B2 무인 자동수집 — 앱 킬스위치 토글(서버 capture_enabled와 둘 다 ON이어야 작동).
+        findViewById<Button>(R.id.btnAutoCapture).setOnClickListener {
+            val cur = prefs().getBoolean("auto_capture_enabled", false)
+            prefs().edit().putBoolean("auto_capture_enabled", !cur).apply()
+            Toast.makeText(this, if (!cur) "자동수집 ON" else "자동수집 OFF", Toast.LENGTH_SHORT).show()
+        }
+
+        // 테스트: 5초 후 "현재 열려있는 카톡방"에서 자동 캡처 1회 실행(접근성 워커가 동작).
+        findViewById<Button>(R.id.btnTestCapture).setOnClickListener {
+            if (!prefs().getBoolean("auto_capture_enabled", false)) {
+                Toast.makeText(this, "먼저 '자동수집 ON' 누르세요", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            Toast.makeText(this, "5초 후 시작 — 지금 거래처 카톡방을 여세요", Toast.LENGTH_LONG).show()
+            handler.postDelayed({
+                CaptureQueue.enqueue(
+                    CaptureRequest("(테스트)", null, "manual test", System.currentTimeMillis())
+                )
+            }, 5000)
+        }
     }
 
     override fun onResume() {

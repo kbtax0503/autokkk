@@ -106,6 +106,20 @@
             android:layout_marginTop="8dp"
             android:text="폴더 최근파일 확인 보내기" />
 
+        <Button
+            android:id="@+id/btnAutoCapture"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:text="무인 자동수집 ON/OFF" />
+
+        <Button
+            android:id="@+id/btnTestCapture"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="자동수집 테스트(5초 후 현재 방)" />
+
         <TextView
             android:id="@+id/status"
             android:layout_width="match_parent"
