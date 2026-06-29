@@ -67,10 +67,12 @@ class KakaoAccessibilityService : AccessibilityService() {
 
         // 공유 시트(시스템 ChooserActivity/ResolverActivity)는 패키지가 "android"라 shouldDump에 안 걸림 → 클래스로 잡는다.
         val shareWin = cls.contains("Chooser", true) || cls.contains("Resolver", true)
+        // 카톡 길게누르기 메뉴(material BottomSheet) — '공유' 버튼 노드 확보용. 스로틀에 막히지 않게 별도 처리.
+        val sheetWin = cls.contains("bottomsheet", true) || cls.contains("BottomSheet", true)
         if (!shouldDump(pkg) && !shareWin) return
 
         val now = System.currentTimeMillis()
-        if (!shareWin && now - lastDump < THROTTLE_MS) return   // 공유 시트는 스로틀 무시(놓치면 안 됨)
+        if (!shareWin && !sheetWin && now - lastDump < THROTTLE_MS) return   // 공유 시트·바텀시트는 스로틀 무시(놓치면 안 됨)
 
         val root = rootInActiveWindow ?: return
         val rootPkg = root.packageName?.toString() ?: ""
