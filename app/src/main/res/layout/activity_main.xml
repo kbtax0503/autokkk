@@ -121,6 +121,48 @@
             android:text="자동수집 테스트(5초 후 현재 방)" />
 
         <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="── 회의 녹음 (VOX) ──"
+            android:textStyle="bold" />
+
+        <EditText
+            android:id="@+id/botToken"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text"
+            android:hint="텔레그램 녹음봇 토큰" />
+
+        <Button
+            android:id="@+id/btnSaveBot"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="녹음봇 토큰 저장" />
+
+        <Button
+            android:id="@+id/btnRecPerms"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="녹음 권한 요청(마이크·파일·배터리)" />
+
+        <Button
+            android:id="@+id/btnRecStart"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="녹음 시작(VOX)" />
+
+        <Button
+            android:id="@+id/btnRecStop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="녹음 중지" />
+
+        <TextView
             android:id="@+id/status"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

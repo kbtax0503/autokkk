@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -81,7 +82,14 @@ class MainActivity : AppCompatActivity() {
             val dlOk = (prefs().getString("download_tree_uri", "") ?: "").isNotBlank()
             val folder = "📁 사진폴더 ${if (photoOk) "✅" else "❌"} · 다운로드폴더 ${if (dlOk) "✅" else "❌"}"
             val auto = if (prefs().getBoolean("auto_capture_enabled", false)) "🟢 자동수집 ON" else "⚪ 자동수집 OFF"
-            status.text = "$st\n$a11y · $dumpInfo\n$folder · $auto\n\n최근 수신: ${KakaoListenerService.lastEvent}"
+            val rec = when {
+                !VoxService.running -> "⚪ 녹음 꺼짐"
+                VoxService.isRecording -> "🔴 녹음 중 (${VoxService.lastRms})"
+                !VoxService.voxEnabled -> "⏸ 녹음 일시정지"
+                VoxService.nightPaused -> "🌙 녹음 야간대기"
+                else -> "🎙 녹음 대기 (소리 ${VoxService.lastRms})"
+            }
+            status.text = "$st\n$a11y · $dumpInfo\n$folder · $auto\n🎙 $rec\n\n최근 수신: ${KakaoListenerService.lastEvent}"
             handler.postDelayed(this, 1000)
         }
     }
@@ -199,6 +207,44 @@ class MainActivity : AppCompatActivity() {
                 )
             }, 5000)
         }
+
+        // ── 회의 녹음(합친 기능) — VOX 녹음 + 텔레그램 원격제어 + 서버 직접 업로드 ──
+        val botToken = findViewById<EditText>(R.id.botToken)
+        botToken.setText(prefs().getString("tg_token", ""))
+        findViewById<Button>(R.id.btnSaveBot).setOnClickListener {
+            prefs().edit().putString("tg_token", botToken.text.toString().trim()).apply()
+            Toast.makeText(this, "녹음 봇 토큰 저장됨 — 봇에게 메시지 한 번 보내면 연결", Toast.LENGTH_SHORT).show()
+        }
+        findViewById<Button>(R.id.btnRecPerms).setOnClickListener { requestRecPerms() }
+        findViewById<Button>(R.id.btnRecStart).setOnClickListener {
+            prefs().edit().putBoolean("autostart", true).apply()
+            ContextCompat.startForegroundService(this, Intent(this, VoxService::class.java))
+            Toast.makeText(this, "녹음 시작 — 소리 감지 시 자동 녹음", Toast.LENGTH_SHORT).show()
+        }
+        findViewById<Button>(R.id.btnRecStop).setOnClickListener {
+            prefs().edit().putBoolean("autostart", false).apply()
+            stopService(Intent(this, VoxService::class.java))
+            Toast.makeText(this, "녹음 중지", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** 회의 녹음에 필요한 권한: 마이크·알림·모든파일접근·배터리최적화 제외. */
+    private fun requestRecPerms() {
+        val needed = mutableListOf(Manifest.permission.RECORD_AUDIO)
+        if (Build.VERSION.SDK_INT >= 33) needed.add(Manifest.permission.POST_NOTIFICATIONS)
+        val toAsk = needed.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (toAsk.isNotEmpty()) ActivityCompat.requestPermissions(this, toAsk.toTypedArray(), 2)
+        if (Build.VERSION.SDK_INT >= 30 && !Environment.isExternalStorageManager()) {
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                    Uri.parse("package:$packageName")))
+            } catch (_: Exception) {
+                try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) } catch (_: Exception) {}
+            }
+        }
+        try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
     }
 
     override fun onResume() {

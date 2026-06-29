@@ -113,6 +113,34 @@ class ServerBridge(private val ctx: Context) {
         }.apply { isDaemon = true }.start()
     }
 
+    /**
+     * 회의 녹음 wav를 서버 /recording 으로 직접 업로드(raw body 스트리밍) — Syncthing 대체.
+     * 큰 파일도 통째로 메모리에 안 올리도록 고정길이 스트리밍. 성공(2xx)이면 true.
+     */
+    fun uploadRecording(file: java.io.File): Boolean {
+        val base = baseUrl()
+        if (base.isBlank()) return false
+        val url = "$base/recording?filename=" + java.net.URLEncoder.encode(file.name, "UTF-8")
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 15000
+                readTimeout = 180000           // 큰 파일 업로드 여유
+                doOutput = true
+                setRequestProperty("Content-Type", "application/octet-stream")
+                val tk = token(); if (tk.isNotBlank()) setRequestProperty("Authorization", "Bearer $tk")
+                setFixedLengthStreamingMode(file.length())
+            }
+            file.inputStream().use { input -> conn.outputStream.use { out -> input.copyTo(out, 64 * 1024) } }
+            conn.responseCode in 200..299
+        } catch (_: Exception) {
+            false
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
     /** 서버 발송 대기 목록(GET /pending). 각 항목 {id, room_key, text}. 실패/없음=null. */
     fun fetchPending(): JSONArray? {
         val base = baseUrl()
