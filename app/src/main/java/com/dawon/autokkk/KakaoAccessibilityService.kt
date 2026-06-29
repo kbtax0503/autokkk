@@ -53,25 +53,28 @@ class KakaoAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val e = event ?: return
         val pkg = e.packageName?.toString() ?: return
+        val cls = e.className?.toString() ?: ""
         when (e.eventType) {
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {}
             else -> return
         }
 
-        // 점검(recon): 창 전환 때마다 패키지 한 줄 로그 → 공유 시트가 어느 패키지인지 확정.
+        // 점검(recon): 창 전환 때마다 패키지/클래스 한 줄 로그 → 공유 시트가 어느 창인지 확정.
         if (e.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && pkg != packageName) {
-            try { bridge.debug("[A11Y] window pkg=$pkg cls=${e.className}") } catch (_: Exception) {}
+            try { bridge.debug("[A11Y] window pkg=$pkg cls=$cls") } catch (_: Exception) {}
         }
 
-        if (!shouldDump(pkg)) return
+        // 공유 시트(시스템 ChooserActivity/ResolverActivity)는 패키지가 "android"라 shouldDump에 안 걸림 → 클래스로 잡는다.
+        val shareWin = cls.contains("Chooser", true) || cls.contains("Resolver", true)
+        if (!shouldDump(pkg) && !shareWin) return
 
         val now = System.currentTimeMillis()
-        if (now - lastDump < THROTTLE_MS) return
+        if (!shareWin && now - lastDump < THROTTLE_MS) return   // 공유 시트는 스로틀 무시(놓치면 안 됨)
 
         val root = rootInActiveWindow ?: return
         val rootPkg = root.packageName?.toString() ?: ""
-        if (!shouldDump(rootPkg)) return
+        if (!shouldDump(rootPkg) && rootPkg != "android" && !shareWin) return
         lastDump = now
 
         try {
