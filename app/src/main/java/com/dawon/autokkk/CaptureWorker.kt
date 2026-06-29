@@ -101,10 +101,19 @@ class CaptureWorker(private val svc: AccessibilityService) {
         }
         sleep(900) // 메시지 렌더 대기
 
+        // 1b. 최신 메시지로 스크롤('아래로' FAB) — 첨부가 화면 밖이면 못 누름.
+        clickScrollToBottom(); sleep(800)
+
         // 2. 최신 첨부 버블(사진/파일) 찾기 — 링크·텍스트 제외.
-        val target = findNewestAttachment()
+        var target = findNewestAttachment()
+        if (target != null && !onScreen(target)) {
+            // 화면 밖이면 한 번 더 스크롤 후 재탐색.
+            clickScrollToBottom(); sleep(800)
+            target = findNewestAttachment()
+        }
         if (target == null) { bridge.debug("[CAP] 첨부 노드 못 찾음 — 중단"); return false }
         bridge.debug("[CAP] 대상=${target.kind} \"${target.label.take(30)}\" @${target.bounds}")
+        if (!onScreen(target)) { bridge.debug("[CAP] 대상이 화면 밖 — 중단(스크롤 필요)"); return false }
 
         // 3. 파일이면 먼저 눌러서 다운로드(형 검증: 안 받으면 공유에 파일 안 실림).
         if (target.kind == "file") {
@@ -112,28 +121,18 @@ class CaptureWorker(private val svc: AccessibilityService) {
             else bridge.debug("[CAP] 파일 다운로드 탭 → 대기")
             sleep(4500) // 다운로드 대기(넉넉히). 큰 파일이면 부족할 수 있음 → 로그 보고 조정.
             // 다운로드가 뷰어를 열었을 수 있으니 채팅으로 복귀 보장.
-            if (rootPkg() != KAKAO) { backOut(1); sleep(500) }
+            if (rootPkg() != KAKAO) { backOut(1); sleep(700) }
         }
 
-        // 4. 첨부 버블 길게 눌러 메뉴 띄우기.
-        val bubble = refind(target) ?: target.node
-        if (!longClick(bubble)) { bridge.debug("[CAP] 길게누르기 실패 — 중단"); return false }
-        if (!waitFor(3500) { findExactDesc("공유") != null || findExactText("공유") != null }) {
-            bridge.debug("[CAP] 메뉴/'공유' 안 뜸 — 중단"); return false
-        }
+        // 4. 공유 트리거: 메시지 옆 '공유' 화살표 우선(안정적), 실패 시 길게누르기 메뉴 '공유'.
+        //    → 카톡 공유창의 '더보기'가 뜰 때까지.
+        if (!triggerShare(target)) { bridge.debug("[CAP] 공유 트리거 실패 — 중단"); return false }
 
-        // 5. 메뉴 '공유' 클릭(정확 일치 — '최근 공유' 등 오인 방지).
-        val shareItem = findExactDesc("공유") ?: findExactText("공유")
-        if (shareItem == null || !click(shareItem)) { bridge.debug("[CAP] '공유' 클릭 실패 — 중단"); return false }
-
-        // 6. 카톡 공유창 → '더보기'(시스템 공유창으로). 친구 체크박스는 절대 안 누름.
-        if (!waitFor(4000) { findExactDesc("더보기") != null || findExactText("더보기") != null }) {
-            bridge.debug("[CAP] '더보기' 안 뜸 — 중단"); return false
-        }
+        // 5. 카톡 공유창 → '더보기'(시스템 공유창으로). 친구 체크박스는 절대 안 누름.
         val more = findExactDesc("더보기") ?: findExactText("더보기")
         if (more == null || !click(more)) { bridge.debug("[CAP] '더보기' 클릭 실패 — 중단"); return false }
 
-        // 7. 시스템 공유창(android Chooser)에서 '카톡 브릿지'만 클릭. 그 외엔 무조건 중단.
+        // 6. 시스템 공유창(android Chooser)에서 '카톡 브릿지'만 클릭. 그 외엔 무조건 중단.
         if (!waitFor(5000) { isChooser() && findExactText("카톡 브릿지") != null }) {
             bridge.debug("[CAP] 시스템 공유창/'카톡 브릿지' 안 뜸 — 중단(안전)"); return false
         }
@@ -143,6 +142,60 @@ class CaptureWorker(private val svc: AccessibilityService) {
         return true
     }
 
+    /**
+     * 공유 트리거 — 메시지 옆 인라인 '공유' 화살표(같은 줄) 우선 클릭, 실패 시 길게누르기 메뉴 '공유'.
+     * 둘 다 카톡 공유창(친구 picker + '더보기')으로 이어짐. '더보기'가 뜨면 성공.
+     */
+    private fun triggerShare(target: Target): Boolean {
+        val arrow = findShareButtonNear(target)
+        if (arrow != null) {
+            bridge.debug("[CAP] 인라인 '공유' 화살표 클릭")
+            if (click(arrow) && waitFor(3500) { hasMore() }) return true
+            bridge.debug("[CAP] 인라인 공유 후 '더보기' 안 뜸 → 길게누르기 폴백")
+        } else {
+            bridge.debug("[CAP] 인라인 '공유' 못 찾음 → 길게누르기")
+        }
+        val node = refind(target) ?: target.node
+        if (!longClick(node)) { bridge.debug("[CAP] 길게누르기 실패"); return false }
+        if (!waitFor(3000) { findExactDesc("공유") != null || findExactText("공유") != null }) {
+            bridge.debug("[CAP] 메뉴 '공유' 안 뜸"); return false
+        }
+        val s = findExactDesc("공유") ?: findExactText("공유")
+        if (s == null || !click(s)) { bridge.debug("[CAP] 메뉴 '공유' 클릭 실패"); return false }
+        return waitFor(3500) { hasMore() }
+    }
+
+    private fun hasMore(): Boolean = findExactDesc("더보기") != null || findExactText("더보기") != null
+
+    private fun onScreen(t: Target): Boolean = t.bottom > t.top && t.top >= 0 && t.bottom <= 2600
+
+    /** '맨 아래로' FAB(desc="아래로")가 있으면 눌러 최신 메시지로 스크롤. 없으면(이미 맨 아래) 무시. */
+    private fun clickScrollToBottom() {
+        val fab = findExactDesc("아래로") ?: return
+        click(fab)
+    }
+
+    /** 메시지 옆 인라인 '공유' 화살표(desc="공유", 화면 안) 중 타깃과 세로로 같은 줄(±250px)인 것. */
+    private fun findShareButtonNear(target: Target): AccessibilityNodeInfo? {
+        val root = svc.rootInActiveWindow ?: return null
+        val targetCy = (target.top + target.bottom) / 2
+        var best: AccessibilityNodeInfo? = null
+        var bestDist = Int.MAX_VALUE
+        fun walk(n: AccessibilityNodeInfo?, depth: Int) {
+            if (n == null || depth > 45) return
+            if (n.contentDescription?.toString()?.trim() == "공유") {
+                val r = Rect().also { n.getBoundsInScreen(it) }
+                if (r.bottom > r.top && r.top >= 0) {
+                    val d = kotlin.math.abs((r.top + r.bottom) / 2 - targetCy)
+                    if (d < bestDist) { bestDist = d; best = n }
+                }
+            }
+            for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
+        }
+        walk(root, 0)
+        return if (bestDist <= 250) best else null
+    }
+
     // ───────── 첨부 탐색 ─────────
 
     private data class Target(
@@ -150,6 +203,7 @@ class CaptureWorker(private val svc: AccessibilityService) {
         val kind: String,     // "photo" | "file"
         val label: String,
         val bounds: String,
+        val top: Int,
         val bottom: Int
     )
 
@@ -164,9 +218,9 @@ class CaptureWorker(private val svc: AccessibilityService) {
             val r = Rect().also { n.getBoundsInScreen(it) }
             when {
                 desc == "사진" || desc == "동영상" ->
-                    cands.add(Target(n, "photo", desc, r.toShortString(), r.bottom))
+                    cands.add(Target(n, "photo", desc, r.toShortString(), r.top, r.bottom))
                 txt.startsWith("파일:") || isFileName(txt) ->
-                    cands.add(Target(n, "file", txt, r.toShortString(), r.bottom))
+                    cands.add(Target(n, "file", txt, r.toShortString(), r.top, r.bottom))
             }
             for (i in 0 until n.childCount) walk(n.getChild(i), depth + 1)
         }
