@@ -194,8 +194,16 @@ class TelegramBridge(private val ctx: Context, private val svc: VoxService) {
 
     private fun storageText(): String {
         val files = wavFiles()
-        val total = files.sumOf { it.length() }
-        return "저장 상태\n파일: ${files.size}개\n사용: ${mb(total)}\n남은 공간: ${mb(recDir().usableSpace)}"
+        val recTotal = files.sumOf { it.length() }
+        val s = try {
+            @Suppress("DEPRECATION")
+            val st = android.os.StatFs(android.os.Environment.getExternalStorageDirectory().path)
+            val totB = st.totalBytes; val freeB = st.availableBytes
+            val pct = if (totB > 0) (((totB - freeB) * 100) / totB).toInt() else 0
+            val freeGb = freeB / (1024L * 1024 * 1024)
+            "📦 폰 저장공간: ${pct}% 사용 (여유 ${freeGb}GB)"
+        } catch (_: Exception) { "📦 폰 저장공간: 확인 불가" }
+        return "$s\n녹음 파일: ${files.size}개 (${mb(recTotal)})"
     }
 
     private fun todayText(): String {
