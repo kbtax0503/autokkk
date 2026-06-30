@@ -25,11 +25,13 @@ class ShareReceiverActivity : AppCompatActivity() {
                 toast("받은 파일이 없어요")
             } else {
                 val bridge = ServerBridge(this)
-                val room = consumePendingRoom()   // B2 워커가 심어둔 방 꼬리표(없으면 ""=수동공유→_inbox)
+                val pending = consumePending()    // B2 워커가 심어둔 (방 꼬리표, 원본 파일명). 수동공유면 ("","")
                 var sent = 0
                 for (u in uris) {
                     val pair = readUri(u) ?: continue
-                    bridge.uploadAsset(pair.first, pair.second, room)  // 비동기 업로드(방 꼬리표 포함)
+                    // 단일 파일이고 워커가 원본 파일명을 심어뒀으면 그걸 사용(카톡 공유의 temp_ 이름 대체).
+                    val name = if (pending.second.isNotBlank() && uris.size == 1) pending.second else pair.first
+                    bridge.uploadAsset(name, pair.second, pending.first)  // 비동기 업로드(방 꼬리표 포함)
                     sent++
                 }
                 toast(if (sent > 0) "자료창고로 보냄: ${sent}개" else "파일을 읽지 못했어요")
@@ -85,16 +87,18 @@ class ShareReceiverActivity : AppCompatActivity() {
     }
 
     /**
-     * B2 워커가 심어둔 방 꼬리표를 1회성으로 읽고 지운다(신선도 60초 — 오래된 잔재는 무시).
-     * 수동 공유(워커 무관)면 보통 비어있어 "" 반환 → 서버가 _inbox로.
+     * B2 워커가 심어둔 (방 꼬리표, 원본 파일명)을 1회성으로 읽고 지운다(신선도 60초 — 오래된 잔재 무시).
+     * 수동 공유(워커 무관)면 보통 비어있어 ("","") 반환 → 서버가 _inbox로.
      */
-    private fun consumePendingRoom(): String {
+    private fun consumePending(): Pair<String, String> {
         val p = getSharedPreferences("cfg", MODE_PRIVATE)
         val room = p.getString("pending_capture_room", "") ?: ""
+        val fname = p.getString("pending_capture_filename", "") ?: ""
         val ts = p.getLong("pending_capture_room_ts", 0L)
-        p.edit().remove("pending_capture_room").remove("pending_capture_room_ts").apply()
+        p.edit().remove("pending_capture_room").remove("pending_capture_room_ts")
+            .remove("pending_capture_filename").apply()
         val fresh = ts > 0 && System.currentTimeMillis() - ts < 60_000
-        return if (fresh) room else ""
+        return if (fresh) (room to fname) else ("" to "")
     }
 
     private fun toast(msg: String) =

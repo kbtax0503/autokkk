@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription
 import android.content.Context
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.PowerManager
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
@@ -68,9 +69,11 @@ class CaptureWorker(private val svc: AccessibilityService) {
 
     private fun runCapture(req: CaptureRequest) {
         bridge.debug("[CAP] ▶ start room=${req.roomTitle} hint=${req.hint.take(30)}")
-        // ShareReceiver가 이 캡처의 업로드에 방 꼬리표를 달도록 사전 저장(신선도 ts 포함).
+        val wl = acquireScreenWake()   // 화면 꺼져 있어도 깨워서 캡처(전용폰 잠금 '없음' 전제)
+        // ShareReceiver가 이 캡처의 업로드에 방 꼬리표 + 원본 파일명을 달도록 사전 저장(신선도 ts 포함).
         prefs().edit()
             .putString("pending_capture_room", req.roomTitle)
+            .putString("pending_capture_filename", extractFilename(req.hint))
             .putLong("pending_capture_room_ts", System.currentTimeMillis())
             .apply()
         var ok = false
@@ -82,12 +85,42 @@ class CaptureWorker(private val svc: AccessibilityService) {
             if (ok) {
                 bridge.debug("[CAP] ✓ 공유 완료 room=${req.roomTitle}")
             } else {
-                prefs().edit().remove("pending_capture_room").remove("pending_capture_room_ts").apply()
+                prefs().edit().remove("pending_capture_room").remove("pending_capture_room_ts")
+                    .remove("pending_capture_filename").apply()
                 bridge.debug("[CAP] ✗ 중단 room=${req.roomTitle} — 빠져나감(아무것도 안 보냄)")
                 backOut(3)
             }
+            releaseWake(wl)
             sleep(1200)
         }
+    }
+
+    /** 알림 문구("파일: 이름.pdf")에서 원본 파일명 추출. 사진 등 파일 아니면 "". */
+    private fun extractFilename(hint: String): String {
+        val h = hint.trim()
+        val i = h.indexOf("파일:")
+        return if (i >= 0) h.substring(i + "파일:".length).trim() else ""
+    }
+
+    /** 화면 깨우기 — 캡처 중 화면 켜짐 유지(전용폰 잠금 '없음'이면 무인 동작). 끝나면 release. */
+    private fun acquireScreenWake(): PowerManager.WakeLock? {
+        return try {
+            val pm = svc.getSystemService(Context.POWER_SERVICE) as PowerManager
+            @Suppress("DEPRECATION")
+            val wl = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "autokkk:capture"
+            )
+            wl.acquire(90_000L)   // 안전 상한 90초(캡처 1건 충분)
+            bridge.debug("[CAP] 화면 깨움")
+            wl
+        } catch (e: Exception) {
+            bridge.debug("[CAP] 화면깨우기 실패: ${e.message}"); null
+        }
+    }
+
+    private fun releaseWake(wl: PowerManager.WakeLock?) {
+        try { if (wl?.isHeld == true) wl.release() } catch (_: Exception) {}
     }
 
     /** 상태머신 본체. 성공 시 true. 어느 단계든 못 찾으면 false(=안전 중단). */
