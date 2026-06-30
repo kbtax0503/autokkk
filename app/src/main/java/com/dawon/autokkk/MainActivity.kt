@@ -192,6 +192,7 @@ class MainActivity : AppCompatActivity() {
             val cur = prefs().getBoolean("auto_capture_enabled", false)
             prefs().edit().putBoolean("auto_capture_enabled", !cur).apply()
             Toast.makeText(this, if (!cur) "자동수집 ON" else "자동수집 OFF", Toast.LENGTH_SHORT).show()
+            if (!cur) requestOverlayPerm()   // 켤 때 '다른 앱 위에 표시' 요청(백그라운드서 방 열기 필수)
         }
 
         // 테스트: 5초 후 "현재 열려있는 카톡방"에서 자동 캡처 1회 실행(접근성 워커가 동작).
@@ -245,6 +246,20 @@ class MainActivity : AppCompatActivity() {
             }
         }
         try { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) } catch (_: Exception) {}
+    }
+
+    /**
+     * B2 무인 캡처 — 백그라운드(폰 안 보고 있을 때)에서 카톡 방을 열려면 안드로이드의
+     * 백그라운드 액티비티 실행 제한을 우회해야 함. '다른 앱 위에 표시'(overlay) 권한이 그 예외다.
+     * 이미 켜져 있으면 아무것도 안 함.
+     */
+    private fun requestOverlayPerm() {
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            try {
+                Toast.makeText(this, "'다른 앱 위에 표시' 권한을 켜주세요 (무인 캡처 필수)", Toast.LENGTH_LONG).show()
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            } catch (_: Exception) {}
+        }
     }
 
     override fun onResume() {
