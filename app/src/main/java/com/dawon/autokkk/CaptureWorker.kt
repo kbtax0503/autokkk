@@ -1,7 +1,9 @@
 package com.dawon.autokkk
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.Context
+import android.graphics.Path
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -272,14 +274,35 @@ class CaptureWorker(private val svc: AccessibilityService) {
         return null
     }
 
-    /** node 또는 가장 가까운 클릭가능 조상에 ACTION_CLICK. */
+    /**
+     * node 또는 가장 가까운 클릭가능 조상에 ACTION_CLICK. 그래도 안 되면 노드 중심 좌표를
+     * 제스처로 직접 탭한다(시스템 공유창 앱 아이콘처럼 클릭가능 조상이 멀거나 없는 항목 대응).
+     */
     private fun click(node: AccessibilityNodeInfo?): Boolean {
-        var n = node; var hop = 0
-        while (n != null && hop < 7) {
-            if (n.isClickable) return n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (node == null) return false
+        var n: AccessibilityNodeInfo? = node; var hop = 0
+        while (n != null && hop < 10) {
+            if (n.isClickable && n.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
             n = n.parent; hop++
         }
-        return node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: false
+        if (node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        return gestureTap(node)
+    }
+
+    /** 노드 중심 좌표를 짧게 탭(제스처). 클릭가능 조상이 없는 시스템 UI 항목용 폴백. */
+    private fun gestureTap(node: AccessibilityNodeInfo): Boolean {
+        return try {
+            val r = Rect().also { node.getBoundsInScreen(it) }
+            if (r.width() <= 0 || r.height() <= 0 || r.centerY() < 0) return false
+            val path = Path().apply { moveTo(r.exactCenterX(), r.exactCenterY()) }
+            val g = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0L, 60L)).build()
+            val ok = svc.dispatchGesture(g, null, null)
+            bridge.debug("[CAP] 좌표 탭(제스처) @${r.toShortString()} → $ok")
+            ok
+        } catch (e: Exception) {
+            bridge.debug("[CAP] 제스처탭 예외: ${e.message}"); false
+        }
     }
 
     /** node 또는 가장 가까운 롱클릭가능 조상에 ACTION_LONG_CLICK. */
