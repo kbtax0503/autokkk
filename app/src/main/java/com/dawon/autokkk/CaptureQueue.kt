@@ -4,7 +4,7 @@ import android.app.PendingIntent
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /** 서버 GET /capture-config 응답 = 거래처방 allowlist + 서버측 킬스위치. */
-data class CaptureConfig(val enabled: Boolean, val rooms: List<String>)
+data class CaptureConfig(val enabled: Boolean, val rooms: List<String>, val exclude: List<String> = emptyList())
 
 /**
  * 캡처 1건 요청. 알림 리스너(생산) → 접근성 워커(소비).

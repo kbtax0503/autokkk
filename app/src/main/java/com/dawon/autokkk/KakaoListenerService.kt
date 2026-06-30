@@ -38,6 +38,7 @@ class KakaoListenerService : NotificationListenerService() {
         /** 무인 자동수집(B2) 설정 캐시 — 서버 /capture-config 폴링으로 갱신(폴 루프). */
         @Volatile var captureEnabled: Boolean = false
         @Volatile var captureRooms: List<String> = emptyList()
+        @Volatile var captureExclude: List<String> = emptyList()
         @Volatile var lastCaptureRefresh: Long = 0L
 
         /**
@@ -189,6 +190,7 @@ class KakaoListenerService : NotificationListenerService() {
         val cfg = bridge.fetchCaptureConfig() ?: return
         captureEnabled = cfg.enabled
         captureRooms = cfg.rooms
+        captureExclude = cfg.exclude
         lastCaptureRefresh = now
     }
 
@@ -203,10 +205,15 @@ class KakaoListenerService : NotificationListenerService() {
         bridge.debug("[CAP] queued room=${parsed.room} hint=${parsed.text.take(40)} q=${CaptureQueue.size()}")
     }
 
-    /** allowlist 매칭: 정규화(trim) 후 완전일치 또는 allowlist 항목이 방 제목에 포함(접미사 있는 방 대응). */
+    /**
+     * 캡처 대상 방인지. 제외목록(개인·시스템 방) 우선 차단 → "*"면 전체 허용 →
+     * 아니면 allowlist 항목이 방 제목에 포함되면 허용(콤마든 방명 부분일치 대응).
+     */
     private fun roomAllowed(room: String): Boolean {
         val r = room.trim()
         if (r.isBlank()) return false
+        if (captureExclude.any { val e = it.trim(); e.isNotBlank() && r.contains(e) }) return false
+        if (captureRooms.any { it.trim() == "*" }) return true
         return captureRooms.any { a ->
             val t = a.trim()
             t.isNotBlank() && (r == t || r.contains(t))

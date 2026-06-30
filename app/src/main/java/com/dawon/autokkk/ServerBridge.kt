@@ -84,7 +84,10 @@ class ServerBridge(private val ctx: Context) {
             val arr = o.optJSONArray("rooms")
             val rooms = ArrayList<String>()
             if (arr != null) for (i in 0 until arr.length()) arr.optString(i)?.let { rooms.add(it) }
-            CaptureConfig(o.optBoolean("enabled", false), rooms)
+            val exArr = o.optJSONArray("exclude")
+            val exclude = ArrayList<String>()
+            if (exArr != null) for (i in 0 until exArr.length()) exArr.optString(i)?.let { exclude.add(it) }
+            CaptureConfig(o.optBoolean("enabled", false), rooms, exclude)
         } catch (_: Exception) {
             null
         }
