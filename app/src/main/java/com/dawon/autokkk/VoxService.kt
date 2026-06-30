@@ -14,8 +14,10 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Environment
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.StatFs
 import androidx.core.app.NotificationCompat
 import java.io.File
 import java.text.SimpleDateFormat
@@ -80,7 +82,37 @@ class VoxService : Service() {
         bridge = TelegramBridge(this, this).also { it.start() }
         uploader = RecordingUploader(this).also { it.start() }  // 녹음 끝난 wav를 서버로 직접 업로드(Syncthing 대체)
         worker = thread(start = true) { loop() }
+        thread(start = true) { storageLoop() }   // 폰 저장공간 80/90% 알림(1차 저장소 보호)
         return START_STICKY
+    }
+
+    /** 30분마다 깨서 "오늘 점검했나" 확인 → 하루 1회(오전 9시 이후) 저장공간 체크. */
+    private fun storageLoop() {
+        while (!stopFlag) {
+            try { maybeDailyStorageCheck() } catch (_: Exception) {}
+            try { Thread.sleep(30 * 60 * 1000L) } catch (_: Exception) {}
+        }
+    }
+
+    /** 하루에 한 번(오전 9시 이후) 폰 저장공간 확인 → 80/90% 이상이면 회의실 봇으로 알림. */
+    private fun maybeDailyStorageCheck() {
+        val cal = java.util.Calendar.getInstance()
+        if (cal.get(java.util.Calendar.HOUR_OF_DAY) < 9) return        // 오전 9시 이후에만
+        val today = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+        val p = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        if (p.getString("storage_check_date", "") == today) return     // 오늘 이미 점검함
+        p.edit().putString("storage_check_date", today).apply()
+        @Suppress("DEPRECATION")
+        val stat = StatFs(Environment.getExternalStorageDirectory().path)   // 내장 사용자 저장소(휴대폰 용량)
+        val total = stat.totalBytes
+        val free = stat.availableBytes
+        if (total <= 0) return
+        val usedPct = (((total - free) * 100) / total).toInt()
+        val freeGb = free / (1024L * 1024 * 1024)
+        when {
+            usedPct >= 90 -> bridge?.notify("🔴 폰 저장공간 ${usedPct}% (여유 ${freeGb}GB). 정리가 필요해요 — 카톡으로 받은 파일을 삭제하세요.")
+            usedPct >= 80 -> bridge?.notify("🟡 폰 저장공간 ${usedPct}% (여유 ${freeGb}GB). 곧 정리가 필요해요.")
+        }
     }
 
     private fun threshold(): Int =
